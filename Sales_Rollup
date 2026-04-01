@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Reporting Interface - Report Integration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        .sidebar-active { border-left: 4px solid #ffffff; background-color: rgba(255,255,255,0.1); }
+        
+        .report-item { transition: all 0.2s; border-radius: 4px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .report-item:hover { background-color: #eff6ff; color: #2563eb; }
+
+        /* Monthly Picker Styles */
+        .month-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px 15px; }
+        .month-item { text-align: center; padding: 10px 5px; cursor: pointer; font-size: 12px; font-weight: 600; color: #4b5563; border-radius: 25px; transition: all 0.2s; }
+        .month-item:hover:not(.active) { background-color: #f3f4f6; }
+        .month-item.active { background-color: #b02a77; color: white; box-shadow: 0 4px 10px rgba(176, 42, 119, 0.4); }
+
+        /* Daily & Weekly Calendar Styles */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
+        .calendar-day { padding: 6px 0; cursor: pointer; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 11px; }
+        .calendar-day.active { background-color: #1d4ed8; color: white; }
+
+        #dateSidebar, #locationSidebar { transition: width 0.3s ease-in-out, opacity 0.2s; width: 0; opacity: 0; overflow: hidden; }
+        #dateSidebar.open, #locationSidebar.open { width: 380px; opacity: 1; border-left-width: 1px; }
+
+        #filterContentWrapper { transition: width 0.3s ease-in-out; width: 0; overflow: hidden; }
+        #filterContentWrapper.open { width: 18rem; }
+
+        /* --- SCOPED REPORT STYLES --- */
+        .dcr-report { font-family: Arial, sans-serif; background: #f4f6f9; padding: 40px 20px; }
+        .dcr-report .report-container { width: 100%; background: #fff; border: 1px solid #ccc; padding: 10px; }
+        .dcr-report .section-title { background-color: #8fa6c6; font-weight: bold; padding: 8px; text-align: center; margin-top: 20px; color: black; }
+        .dcr-report table { width: 100%; border-collapse: collapse; margin-bottom: 20px;}
+        .dcr-report th, .dcr-report td { border: 1px solid #ddd; padding: 6px; font-size: 12px; color: black; }
+        .dcr-report th { background: #e6e6e6; }
+        .dcr-report .right { text-align: right; }
+        .dcr-report .total { text-align: right; font-weight: bold; }
+        .dcr-report .center { text-align: center; }
+        .dcr-report .no-data { text-align: center; padding: 10px; color: #777; }
+        
+        /* Custom scrollbar for the report canvas */
+        #reportPreviewCanvas::-webkit-scrollbar { width: 8px; }
+        #reportPreviewCanvas::-webkit-scrollbar-track { background: #f1f5f9; }
+        #reportPreviewCanvas::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        #reportPreviewCanvas::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <header class="bg-[#001529] text-white h-12 flex items-center justify-between px-4 shrink-0 z-50">
+        <div class="flex items-center gap-4">
+            <i class="fas fa-th-large text-lg"></i>
+            <span class="font-semibold text-sm">My App</span>
+        </div>
+        <div class="flex items-center gap-4 text-gray-300">
+            <i class="fas fa-cog cursor-pointer hover:text-white"></i>
+            <div class="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-xs font-bold text-white uppercase">G</div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <aside class="bg-[#001529] w-12 flex flex-col items-center py-4 gap-4 shrink-0 z-30">
+            <div class="p-2 cursor-pointer hover:bg-blue-900 rounded text-white"><i class="fas fa-home"></i></div>
+            <div class="p-2 cursor-pointer sidebar-active rounded text-white"><i class="fas fa-chart-bar"></i></div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-hidden bg-white min-h-0">
+            <div class="border-b flex items-center px-4 h-10 gap-6 text-sm shrink-0">
+                <div onclick="resetToDashboard()" class="flex items-center gap-2 text-blue-600 border-b-2 border-blue-600 h-full px-2 font-medium cursor-pointer hover:bg-gray-50 transition">Sales</div>
+                <div class="text-gray-400 cursor-pointer hover:text-gray-600 transition">Labor</div>
+                <div class="text-gray-400 cursor-pointer hover:text-gray-600 transition">Food</div>
+            </div>
+
+            <div id="dashboardView" class="p-6 overflow-y-auto bg-[#f0f2f5] h-full">
+                <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    <div class="bg-white border rounded p-4 shadow-sm">
+                        <div class="border-l-4 border-blue-700 pl-2 mb-3 font-bold text-[11px] text-gray-700 uppercase tracking-wider">Sales Performance</div>
+                        <ul class="space-y-1 text-[12px] text-gray-600">
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Sales By Daypart Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Sales By Surcharge Report</li>
+                            <li onclick="openReport()" class="report-item font-bold text-blue-600"><i class="far fa-file-alt"></i> Daily Sales Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Monthly Sales Report</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="bg-white border rounded p-4 shadow-sm">
+                        <div class="border-l-4 border-blue-700 pl-2 mb-3 font-bold text-[11px] text-gray-700 uppercase tracking-wider">Discounts & Adjustments</div>
+                        <ul class="space-y-1 text-[12px] text-gray-600">
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Sales By Discount Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Void / Refund Report</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-white border rounded p-4 shadow-sm">
+                        <div class="border-l-4 border-blue-700 pl-2 mb-3 font-bold text-[11px] text-gray-700 uppercase tracking-wider">Payment & Cash Management</div>
+                        <ul class="space-y-1 text-[12px] text-gray-600">
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Payment Type Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Paid In / Paid Out Report</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div id="reportView" class="hidden flex-1 flex flex-col bg-[#f0f2f5] min-h-0">
+                <div class="bg-white border-b px-4 py-2 flex items-center justify-between shrink-0">
+                    <div class="text-[11px]">
+                        <span class="text-gray-400">Sales</span> <i class="fas fa-chevron-right text-[8px] mx-1 text-gray-300"></i> 
+                        <span class="text-gray-400">Sales Performance</span> <i class="fas fa-chevron-right text-[8px] mx-1 text-gray-300"></i> 
+                        <span class="text-blue-600 font-bold">Daily Sales Report</span>
+                    </div>
+                    <button onclick="resetToDashboard()" class="text-blue-500 border border-blue-500 rounded px-4 py-1 text-[11px] font-bold uppercase hover:bg-blue-50">Reset</button>
+                </div>
+
+                <div class="flex flex-1 overflow-hidden relative min-h-0">
+                    
+                    <div id="emptyStateCanvas" class="flex-1 flex flex-col items-center justify-center text-gray-400 bg-gray-50/50">
+                        <i class="fas fa-chart-bar text-4xl mb-3 opacity-10"></i>
+                        <p class="italic text-sm">Select criteria from the panel on the right, or click PDF to preview.</p>
+                    </div>
+
+                    <div id="reportPreviewCanvas" class="hidden flex-1 h-full overflow-y-auto bg-gray-200 relative min-h-0">
+                        <div class="dcr-report pb-10">
+                            <div class="report-container max-w-5xl mx-auto shadow-md">
+                                <div class="section-title">Cash Reconciliation</div>
+                                <table>
+                                   <tr><th>Description</th><th>#</th><th>Amount ($)</th></tr>
+                                   <tr><td>Gross Sales</td><td class="right"></td><td class="right">106,932.95</td></tr>
+                                   <tr><td>Total Discount</td><td class="right"></td><td class="right">2,344.21</td></tr>
+                                   <tr><td>Total Tax</td><td class="right"></td><td class="right">6,842.46</td></tr>
+                                   <tr><td>Total Transaction Count</td><td class="right">4431</td><td class="right"></td></tr>
+                                   <tr><td>Net Sales</td><td class="right"></td><td class="right">97,746.28</td></tr>
+                                   <tr><td>Adjusted Gross Sales</td><td class="right"></td><td class="right">106,969.79</td></tr>
+                                   <tr><td>Gift Card Issued</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Gift Card Reloaded</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Exempt Sales</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Total Tips</td><td class="right"></td><td class="right">3,065.58</td></tr>
+                                   <tr><td>Total Cash Deposit</td><td class="right"></td><td class="right">18,657.32</td></tr>
+                                   <tr><td>Total Service Charge</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Total Gratuity</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Total Refund</td><td class="right"></td><td class="right">227.11</td></tr>
+                                   <tr><td>Non Revenue Sales</td><td class="right"></td><td class="right">34.45</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Sales by Minor Category</div>
+                                <table>
+                                   <tr><th>Name</th><th>Net Sales ($)</th><th>% Net</th><th>Gross Sales ($)</th><th>Comps ($)</th><th>Discounts ($)</th><th>Taxes ($)</th><th>Voids ($)</th></tr>
+                                   <tr><td>Adult Beverage</td><td class="right">13,663.93</td><td class="right">13.97</td><td class="right">13,955.87</td><td class="right">0</td><td class="right">291.94</td><td class="right">0</td><td class="right">354.18</td></tr>
+                                   <tr><td>Adult Buffet</td><td class="right">62,741.72</td><td class="right">64.17</td><td class="right">64,540.88</td><td class="right">0</td><td class="right">1799.16</td><td class="right">0</td><td class="right">1972.48</td></tr>
+                                   <tr><td>CYO Pizza</td><td class="right">1850.98</td><td class="right">1.89</td><td class="right">1915.94</td><td class="right">0</td><td class="right">64.96</td><td class="right">0</td><td class="right">37.96</td></tr>
+                                   <tr><td>Catering</td><td class="right">335.71</td><td class="right">0.34</td><td class="right">335.71</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">2.50</td></tr>
+                                   <tr><td>Charges</td><td class="right">34.45</td><td class="right">0.04</td><td class="right">34.45</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Child Beverage</td><td class="right">1,746.92</td><td class="right">1.79</td><td class="right">1,768.64</td><td class="right">0</td><td class="right">21.72</td><td class="right">0</td><td class="right">41.00</td></tr>
+                                   <tr><td>Child Buffet</td><td class="right">8,861.55</td><td class="right">9.06</td><td class="right">8,971.67</td><td class="right">0</td><td class="right">110.12</td><td class="right">0</td><td class="right">209.54</td></tr>
+                                   <tr><td>OU Deals</td><td class="right">1,356.96</td><td class="right">1.39</td><td class="right">1,365.35</td><td class="right">0</td><td class="right">8.39</td><td class="right">0</td><td class="right">37.97</td></tr>
+                                   <tr><td>Sides & Desserts</td><td class="right">1,682.04</td><td class="right">1.72</td><td class="right">1,682.04</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">12.98</td></tr>
+                                   <tr><td>Specialty Pizza</td><td class="right">3,327.19</td><td class="right">3.40</td><td class="right">3,345.04</td><td class="right">0</td><td class="right">17.85</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Toppings</td><td class="right">194.51</td><td class="right">0.20</td><td class="right">194.51</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Wings</td><td class="right">1,984.77</td><td class="right">2.03</td><td class="right">2,014.84</td><td class="right">0</td><td class="right">30.07</td><td class="right">0</td><td class="right">21.98</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">97,780.73</td><td class="right"></td><td class="right">100,124.94</td><td class="right">0</td><td class="right">2,344.21</td><td class="right">0</td><td class="right">2,690.59</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Sales by Daypart</div>
+                                <table>
+                                   <tr><th>Name</th><th>Net Sales ($)</th><th>%</th><th>Adjusted Gross ($)</th><th>Comps ($)</th><th>Discounts ($)</th><th>Taxes ($)</th><th>Voids ($)</th></tr>
+                                   <tr><td>Closing</td><td class="right">1,046.61</td><td class="right">3.98</td><td class="right">2,405.96</td><td class="right">0</td><td class="right">29.08</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Mid Day</td><td class="right">2,027.02</td><td class="right">7.56</td><td class="right">4,565.74</td><td class="right">0</td><td class="right">41.09</td><td class="right">0</td><td class="right">3.05</td></tr>
+                                   <tr><td>Morning</td><td class="right">23,706.56</td><td class="right">88.46</td><td class="right">53,658.72</td><td class="right">0</td><td class="right">436.33</td><td class="right">0</td><td class="right">146.66</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">26,780.19</td><td class="right">88.46</td><td class="right">60,630.42</td><td class="right">0</td><td class="right">506.50</td><td class="right">0</td><td class="right">149.71</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Surcharge Details</div>
+                                <div class="no-data">No Data To Display</div>
+                       
+                                <div class="section-title">Payment by Mode</div>
+                                <table>
+                                   <tr><th>Name</th><th># Payments</th><th>Amount ($)</th><th>Tips ($)</th><th>Total Amount ($)</th></tr>
+                                   <tr><td>American Express</td><td class="right">524</td><td class="right">6,128.52</td><td class="right">669.84</td><td class="right">6,798.36</td></tr>
+                                   <tr><td>Cash</td><td class="right">457</td><td class="right">3,929.78</td><td class="right">0</td><td class="right">3,929.78</td></tr>
+                                   <tr><td>Discover</td><td class="right">106</td><td class="right">1,282.04</td><td class="right">11.66</td><td class="right">1,293.7</td></tr>
+                                   <tr><td>GiftCard</td><td class="right">112</td><td class="right">1,014.51</td><td class="right">0</td><td class="right">1,014.51</td></tr>
+                                   <tr><td>Master Card</td><td class="right">548</td><td class="right">6,093.94</td><td class="right">646.36</td><td class="right">6,740.3</td></tr>
+                                   <tr><td>DoorDash</td><td class="right">309</td><td class="right">6,151.86</td><td class="right">0</td><td class="right">6,151.86</td></tr>
+                                   <tr><td>Grubhub</td><td class="right">10</td><td class="right">315.75</td><td class="right">0</td><td class="right">315.75</td></tr>
+                                   <tr><td>Ordering</td><td class="right">37</td><td class="right">543.04</td><td class="right">36.92</td><td class="right">579.96</td></tr>
+                                   <tr><td>UberEats</td><td class="right">27</td><td class="right">556.86</td><td class="right">0</td><td class="right">556.86</td></tr>
+                                   <tr><td>Visa</td><td class="right">1768</td><td class="right">20,706.23</td><td class="right">2,259.49</td><td class="right">22,965.72</td></tr>
+                                   <tr><td>Voucher</td><td class="right">7</td><td class="right">60.50</td><td class="right">0</td><td class="right">60.50</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">3,905</td><td class="right">46,783.03</td><td class="right">3,624.27</td><td class="right">50,407.30</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Sales by Type / Revenue Center</div>
+                                <table>
+                                   <tr><th>Name</th><th># Check</th><th>Net Sales ($)</th><th>Tax ($)</th><th>Discount ($)</th><th>Gross Sales ($)</th></tr>
+                                   <tr><td>DOORDASH</td><td class="right">251</td><td class="right">4,900.13</td><td class="right">254.52</td><td class="right">52.36</td><td class="right">5207.01</td></tr>
+                                   <tr><td>Delivery</td><td class="right">2</td><td class="right">185.25</td><td class="right">2.54</td><td class="right">0</td><td class="right">187.79</td></tr>
+                                   <tr><td>Dine IN</td><td class="right">3,957</td><td class="right">97,614.58</td><td class="right">1,587.88</td><td class="right">268.85</td><td class="right">99,471.31</td></tr>
+                                   <tr><td>GRUBHUB</td><td class="right">5</td><td class="right">48.23</td><td class="right">1.54</td><td class="right">0</td><td class="right">49.77</td></tr>
+                                   <tr><td>OLO</td><td class="right">52</td><td class="right">3,182.16</td><td class="right">425.57</td><td class="right">26.56</td><td class="right">3,634.29</td></tr>
+                                   <tr><td>Dispatch</td><td class="right">9</td><td class="right">331.19</td><td class="right">65.54</td><td class="right">2.59</td><td class="right">399.32</td></tr>
+                                   <tr><td>Pickup</td><td class="right">125</td><td class="right">2,850.97</td><td class="right">87.85</td><td class="right">25.36</td><td class="right">2964.18</td></tr>
+                                   <tr><td>Takeout</td><td class="right">24</td><td class="right">250.79</td><td class="right">52.54</td><td class="right">0</td><td class="right">303.33</td></tr>
+                                   <tr><td>ToGo</td><td class="right">109</td><td class="right">1,727.82</td><td class="right">98.58</td><td class="right">15.68</td><td class="right">1842.08</td></tr>
+                                   <tr><td>UBER</td><td class="right">25</td><td class="right">783.05</td><td class="right">58.68</td><td class="right">5.25</td><td class="right">846.98</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">4,559</td><td class="right">111,874.17</td><td class="right">2,635.24</td><td class="right">396.65</td><td class="right">114,906.06</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Bank Deposit</div>
+                                <table>
+                                   <tr><th>Name</th><th>Amount ($)</th><th>Tips ($)</th><th>Total Amount ($)</th></tr>
+                                   <tr><td>In Store Deposit</td><td class="right">4,297.18</td><td class="right">0</td><td class="right">4,297.18</td></tr>
+                                   <tr><td>Plum Ordering</td><td class="right">6,521.56</td><td class="right">25.18</td><td class="right">4,297.18</td></tr>
+                                   <tr><td>Credit Card</td><td class="right">11,865.78</td><td class="right">197.18</td><td class="right">4,297.18</td></tr>
+                                   <tr><td>OLO Credit Card</td><td class="right">1,865.78</td><td class="right">97.18</td><td class="right">4,297.18</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">24,550.30</td><td class="right">319.54</td><td class="right">17,188.72</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Paid In/Out</div>
+                                <table>
+                                   <tr><th>Name</th><th>#</th><th>Amount ($)</th></tr>
+                                   <tr><td>Cleaning Supplies</td><td class="right">1</td><td class="right">20</td></tr>
+                                   <tr><td>Food Other</td><td class="right">2</td><td class="right">73.05</td></tr>
+                                   <tr><td>Local Store Marketing</td><td class="right">2</td><td class="right">20.84</td></tr>
+                                   <tr><td>Office Supplies</td><td class="right">6</td><td class="right">282.42</td></tr>
+                                   <tr><td>Store Supplies</td><td class="right">4</td><td class="right">167.05</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">15</td><td class="right">563.36</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Discounts</div>
+                                <table>
+                                   <tr><th>Name</th><th>#</th><th>Amount ($)</th></tr>
+                                   <tr><td>Corporate Employee Bean Coupon</td><td class="right">3</td><td class="right">61.00</td></tr>
+                                   <tr><td>Corporate Employee Food</td><td class="right">14</td><td class="right">49.09</td></tr>
+                                   <tr><td>Corporate Employee Shift Drink</td><td class="right">11</td><td class="right">59.59</td></tr>
+                                   <tr><td>Corporate Free Coffee</td><td class="right">38</td><td class="right">131.42</td></tr>
+                                   <tr><td>GC Reward</td><td class="right">8</td><td class="right">39.89</td></tr>
+                                   <tr><td>No Paper Reward</td><td class="right">36</td><td class="right">8.50</td></tr>
+                                   <tr><td>Open Discount</td><td class="right">41</td><td class="right">112.75</td></tr>
+                                   <tr><td>Flat 10</td><td class="right">2</td><td class="right">0</td></tr>
+                                   <tr><td>Loyalty Discount</td><td class="right">10</td><td class="right">61.54</td></tr>
+                                   <tr><td>OLD Discount</td><td class="right">51</td><td class="right">268.71</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">214</td><td class="right">792.49</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Voids</div>
+                                <table>
+                                   <tr><th>Name</th><th>#</th><th>Amount</th></tr>
+                                   <tr><td>Cashier Error</td><td class="right">68</td><td class="right">205.50</td></tr>
+                                   <tr><td>Customer Changed Mind</td><td class="right">42</td><td class="right">145.97</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">110</td><td class="right">351.47</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Comps</div>
+                                <table>
+                                   <tr><th>Name</th><th>#</th><th>Amount ($)</th></tr>
+                                   <tr><td>Manager Correction</td><td class="right">60</td><td class="right">197.50</td></tr>
+                                   <tr><td>Employee Error</td><td class="right">38</td><td class="right">114.97</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">98</td><td class="right">312.47</td></tr>
+                                </table>
+                       
+                                <div class="section-title">House Detail</div>
+                                <table>
+                                   <tr><th>Name</th><th>#</th><th>Amount ($)</th></tr>
+                                   <tr><td>Po orders Cisd</td><td class="right">11</td><td class="right">5,520.00</td></tr>
+                                   <tr><td>Customer Changed Mind</td><td class="right">38</td><td class="right">114.97</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">49</td><td class="right">5,634.97</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Taxes</div>
+                                <table>
+                                   <tr><th>Name</th><th>Amount ($)</th></tr>
+                                   <tr><td>City Tax</td><td class="right">1012.54</td></tr>
+                                   <tr><td>County Tax</td><td class="right">506.50</td></tr>
+                                   <tr><td>Local Tax</td><td class="right">120.54</td></tr>
+                                   <tr><td>No Tax</td><td class="right">0</td></tr>
+                                   <tr><td>State Sales Tax</td><td class="right">1075.65</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">2715.23</td></tr>
+                                </table>
+                                
+                                <div class="section-title">Taxes by Revenue Center</div>
+                                <table>
+                                   <tr><th>Revenue Center</th><th>City Tax ($)</th><th>County Tax ($)</th><th>Local Tax ($)</th><th>State Sales Tax ($)</th><th>No Tax ($)</th><th>Total Tax ($)</th></tr>
+                                   <tr><td>DOORDASH</td><td class="right">20.50</td><td class="right">12.52</td><td class="right">17.52</td><td class="right">52.54</td><td class="right">0</td><td class="right">103.08</td></tr>
+                                   <tr><td>Delivery</td><td class="right">14.60</td><td class="right">0</td><td class="right">0</td><td class="right">152.25</td><td class="right">0</td><td class="right">166.85</td></tr>
+                                   <tr><td>Dine IN</td><td class="right">652.54</td><td class="right">125.36</td><td class="right">80.57</td><td class="right">485.58</td><td class="right">0</td><td class="right">1344.05</td></tr>
+                                   <tr><td>GRUBHUB</td><td class="right">12.25</td><td class="right">15.52</td><td class="right">0</td><td class="right">25.35</td><td class="right">0</td><td class="right">53.12</td></tr>
+                                   <tr><td>OLO</td><td class="right">125.5</td><td class="right">102.56</td><td class="right">10.2</td><td class="right">45.25</td><td class="right">0</td><td class="right">283.51</td></tr>
+                                   <tr><td>Dispatch</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Pickup</td><td class="right">12.6</td><td class="right">15.52</td><td class="right">8.5</td><td class="right">154.25</td><td class="right">0</td><td class="right">190.87</td></tr>			
+                                   <tr><td>Takeout</td><td class="right">124.54</td><td class="right">145.58</td><td class="right">2.5</td><td class="right">58.25</td><td class="right">0</td><td class="right">330.87</td></tr>
+                                   <tr><td>ToGo</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>UBER</td><td class="right">50.01</td><td class="right">89.44</td><td class="right">1.25</td><td class="right">102.18</td><td class="right">0</td><td class="right">242.88</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">1012.54</td><td class="right">506.5</td><td class="right">120.54</td><td class="right">1075.65</td><td class="right">0</td><td class="right">2715.33</td></tr>
+                                </table>
+                             </div>
+                        </div>
+                    </div>
+
+                    <div class="flex shrink-0 bg-white border-l">
+                        <div class="w-[45px] border-r flex items-start justify-center pt-6 bg-white cursor-pointer hover:bg-gray-50 transition" onclick="toggleFilterSidebar()">
+                            <span class="rotate-180 [writing-mode:vertical-lr] text-[10px] font-bold tracking-widest text-gray-800 uppercase">
+                                <i class="fas fa-filter rotate-90 mb-2"></i> Filters
+                            </span>
+                        </div>
+
+                        <div id="locationSidebar" class="flex flex-col bg-white h-full shadow-inner z-10">
+                            <div class="p-6 w-[380px]">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h2 class="font-bold text-gray-500 text-xs uppercase tracking-widest">Select Franchise / Store</h2>
+                                    <i onclick="toggleLocationSidebar()" class="fas fa-times cursor-pointer text-gray-400 text-lg hover:text-black"></i>
+                                </div>
+                                <input type="text" placeholder="Search..." class="w-full border rounded p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 text-gray-600">
+                                <div class="mt-4 flex-1 overflow-y-auto">
+                                    <div class="flex items-center gap-2 mb-2 cursor-pointer">
+                                        <i class="fas fa-caret-down text-gray-800"></i>
+                                        <input type="checkbox" class="accent-blue-600 w-4 h-4 cursor-pointer">
+                                        <span class="text-sm text-[#1e40af] font-medium">Corporate (11)</span>
+                                    </div>
+                                    <div class="border-l border-gray-200 ml-[9px] pl-6 space-y-3 py-1 flex flex-col">
+                                        <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="accent-blue-600 w-4 h-4"><span class="text-sm text-[#64748b]">Sparta</span></label>
+                                        <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="accent-blue-600 w-4 h-4"><span class="text-sm text-[#64748b]">Famous Dave's Redlands #3135</span></label>
+                                        <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="accent-blue-600 w-4 h-4"><span class="text-sm text-[#64748b]">Famous Dave's Gilroy #3101</span></label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="dateSidebar" class="flex flex-col bg-white h-full shadow-inner z-10">
+                            <div class="p-6 flex flex-col h-full w-[380px]">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h2 class="font-bold text-gray-500 text-xs uppercase">Select Date</h2>
+                                    <i onclick="toggleDateSidebar()" class="fas fa-times cursor-pointer text-gray-300 hover:text-black"></i>
+                                </div>
+
+                                <div class="flex gap-4 mb-8 border-b pb-4">
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="daily" checked onclick="switchDateUI('daily')" class="accent-blue-600"> Daily
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="weekly" onclick="switchDateUI('weekly')" class="accent-blue-600"> Weekly
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="monthly" onclick="switchDateUI('monthly')" class="accent-blue-600"> Monthly
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="custom" onclick="switchDateUI('custom')" class="accent-blue-600"> Custom
+                                    </label>
+                                </div>
+
+                                <div class="flex-1">
+                                    <div id="ui-daily" class="space-y-4">
+                                        <label class="text-[10px] font-bold text-gray-400 uppercase">Busi Date</label>
+                                        <div class="relative">
+                                            <input type="text" id="dateInput" readonly value="3/26/2026" onclick="toggleDailyCal()" class="w-full border rounded p-2 text-sm cursor-pointer outline-none">
+                                            <i class="far fa-calendar-alt absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                                        </div>
+                                        <div id="dailyCal" class="hidden border rounded shadow-lg p-4 bg-white mt-1">
+                                            <div class="flex justify-between items-center mb-4 text-xs font-bold text-gray-700">MAR 2026 <i class="fas fa-caret-down"></i></div>
+                                            <div class="calendar-grid text-[10px] font-bold text-gray-300 mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                                            <div id="daysGrid" class="calendar-grid"></div>
+                                        </div>
+                                    </div>
+
+                                    <div id="ui-weekly" class="hidden space-y-4">
+                                        <label class="text-[10px] font-bold text-gray-400 uppercase">Select Week</label>
+                                        <div class="relative">
+                                            <input type="text" id="weeklyDateInput" readonly value="3/26/2026" onclick="toggleWeeklyCal()" class="w-full border rounded p-2 text-sm cursor-pointer outline-none">
+                                            <i class="far fa-calendar-alt absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                                        </div>
+                                        <div id="weeklyCal" class="hidden border rounded shadow-lg p-4 bg-white mt-1">
+                                            <div class="flex justify-between items-center mb-4 text-xs font-bold text-gray-700">MAR 2026 <i class="fas fa-caret-down"></i></div>
+                                            <div class="calendar-grid text-[10px] font-bold text-gray-300 mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                                            <div id="weeklyDaysGrid" class="calendar-grid"></div>
+                                        </div>
+                                    </div>
+
+                                    <div id="ui-monthly" class="hidden space-y-4">
+                                        <label class="text-[10px] font-bold text-gray-400 uppercase">Busi Month</label>
+                                        <div class="relative">
+                                            <input type="text" id="monthlyInput" readonly value="MAR 2026" onclick="toggleMonthlyPicker()" class="w-full border rounded p-2 text-sm cursor-pointer outline-none">
+                                            <i class="far fa-calendar-alt absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                                        </div>
+                                        
+                                        <div id="monthlyPicker" class="hidden border rounded-xl shadow-lg bg-white mt-1 overflow-hidden">
+                                            <div class="flex justify-between items-center p-4 border-b">
+                                                <div class="border rounded px-2 py-1 text-sm font-medium" id="yearDisplay">2026 <i class="fas fa-caret-up text-[#b02a77]"></i></div>
+                                                <div class="flex gap-4 text-[#b02a77]">
+                                                    <i class="fas fa-chevron-left cursor-pointer" onclick="changeYear(-1)"></i>
+                                                    <i class="fas fa-chevron-right cursor-pointer" onclick="changeYear(1)"></i>
+                                                </div>
+                                            </div>
+                                            <div class="month-grid" id="monthGrid">
+                                                </div>
+                                        </div>
+                                    </div>
+
+                                    <div id="ui-custom" class="hidden space-y-4">
+                                        <div class="flex gap-4">
+                                            <div class="flex-1">
+                                                <label class="text-[10px] font-bold text-gray-400 uppercase">Start Date</label>
+                                                <input type="date" class="w-full border rounded p-2 text-sm mt-1 outline-none">
+                                            </div>
+                                            <div class="flex-1">
+                                                <label class="text-[10px] font-bold text-gray-400 uppercase">End Date</label>
+                                                <input type="date" class="w-full border rounded p-2 text-sm mt-1 outline-none">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside id="filterContentWrapper" class="bg-white shrink-0 z-20 relative shadow-[-4px_0_10px_rgba(0,0,0,0.03)]">
+                            <div class="w-72 flex flex-col h-full border-l">
+                                <div class="flex-1 p-4 bg-[#f1f6fa] overflow-y-auto">
+                                    <div class="bg-[#e6f0f8] border border-blue-100 rounded p-4 shadow-sm">
+                                        <div class="text-[10px] font-bold text-gray-400 mb-4 uppercase">Filters</div>
+                                        <div onclick="toggleLocationSidebar()" class="cursor-pointer mb-5 group">
+                                            <div class="flex justify-between items-center text-[11px] font-bold text-gray-600 group-hover:text-blue-600 transition">LOCATION <i class="fas fa-chevron-down text-gray-400"></i></div>
+                                            <div id="locationSubtext" class="text-[11px] text-gray-400 italic mt-1">None locations included</div>
+                                        </div>
+                                        <div onclick="toggleDateSidebar()" class="cursor-pointer group">
+                                            <div class="flex justify-between items-center text-[11px] font-bold text-gray-600 group-hover:text-blue-600 transition">DATE RANGE <i class="fas fa-chevron-down text-gray-400"></i></div>
+                                            <div id="filterSubtext" class="text-[11px] text-gray-400 italic mt-1">Select a date range...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex gap-2 border-t bg-white shrink-0">
+                                    <button onclick="renderPDFReport()" class="flex-1 border rounded py-2 text-[10px] text-blue-600 font-bold flex items-center justify-center gap-1 hover:bg-gray-50 transition"><i class="far fa-file-pdf"></i> PDF</button>
+                                    <button class="flex-1 border rounded py-2 text-[10px] text-blue-600 font-bold flex items-center justify-center gap-1 hover:bg-gray-50 transition"><i class="far fa-file-excel"></i> EXCEL</button>
+                                    <button class="flex-1 border rounded py-2 text-[10px] text-blue-600 font-bold flex items-center justify-center gap-1 hover:bg-gray-50 transition"><i class="fas fa-globe"></i> WEB</button>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function openReport() {
+            document.getElementById('dashboardView').classList.add('hidden');
+            document.getElementById('reportView').classList.remove('hidden');
+        }
+
+        // --- ENHANCED RESET FUNCTION ---
+        function resetToDashboard() {
+            // Revert back to the dashboard UI
+            document.getElementById('dashboardView').classList.remove('hidden');
+            document.getElementById('reportView').classList.add('hidden');
+            
+            // 1. Remove/Hide the active PDF report and show the initial empty state placeholder
+            document.getElementById('reportPreviewCanvas').classList.add('hidden');
+            document.getElementById('emptyStateCanvas').classList.remove('hidden');
+
+            // 2. Reset the store/location selection
+            const checkboxes = document.querySelectorAll('#locationSidebar input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            document.getElementById('locationSubtext').innerText = 'None locations included';
+
+            // 3. Reset the date selection inputs to default values
+            document.getElementById('dateInput').value = '3/26/2026';
+            document.getElementById('weeklyDateInput').value = '3/26/2026';
+            selectedMonthIdx = 2; // March
+            currentYear = 2026;
+            initMonthlyCalendar();
+            updateMonthlyInput();
+            document.getElementById('filterSubtext').innerText = 'Select a date range...';
+
+            // 4. Close any opened sidebars so the UI state is fresh
+            document.getElementById('dateSidebar').classList.remove('open');
+            document.getElementById('locationSidebar').classList.remove('open');
+            document.getElementById('filterContentWrapper').classList.remove('open');
+        }
+
+        function renderPDFReport() {
+            document.getElementById('emptyStateCanvas').classList.add('hidden');
+            document.getElementById('reportPreviewCanvas').classList.remove('hidden');
+        }
+
+        function toggleFilterSidebar() { 
+            const filterWrapper = document.getElementById('filterContentWrapper');
+            filterWrapper.classList.toggle('open'); 
+            if (!filterWrapper.classList.contains('open')) {
+                document.getElementById('dateSidebar').classList.remove('open');
+                document.getElementById('locationSidebar').classList.remove('open');
+            }
+        }
+        function toggleDateSidebar() { 
+            document.getElementById('dateSidebar').classList.toggle('open'); 
+            document.getElementById('locationSidebar').classList.remove('open');
+        }
+        function toggleLocationSidebar() {
+            document.getElementById('locationSidebar').classList.toggle('open');
+            document.getElementById('dateSidebar').classList.remove('open');
+        }
+
+        // Calendar Toggles
+        function toggleDailyCal() { document.getElementById('dailyCal').classList.toggle('hidden'); }
+        function toggleWeeklyCal() { document.getElementById('weeklyCal').classList.toggle('hidden'); }
+        function toggleMonthlyPicker() { document.getElementById('monthlyPicker').classList.toggle('hidden'); }
+        
+        function switchDateUI(mode) {
+            ['daily', 'weekly', 'monthly', 'custom'].forEach(m => document.getElementById('ui-' + m).classList.add('hidden'));
+            document.getElementById('ui-' + mode).classList.remove('hidden');
+        }
+
+        // --- MONTHLY CALENDAR LOGIC ---
+        let currentYear = 2026;
+        let selectedMonthIdx = 2; // Default to March (index 2)
+        const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+        function initMonthlyCalendar() {
+            const grid = document.getElementById('monthGrid');
+            grid.innerHTML = '';
+            monthNames.forEach((month, index) => {
+                const div = document.createElement('div');
+                div.className = `month-item ${index === selectedMonthIdx ? 'active' : ''}`;
+                div.innerText = month;
+                div.onclick = () => selectMonth(index);
+                grid.appendChild(div);
+            });
+            document.getElementById('yearDisplay').innerHTML = `${currentYear} <i class="fas fa-caret-up text-[#b02a77]"></i>`;
+        }
+
+        function changeYear(delta) {
+            currentYear += delta;
+            initMonthlyCalendar();
+            updateMonthlyInput();
+        }
+
+        function selectMonth(idx) {
+            selectedMonthIdx = idx;
+            initMonthlyCalendar();
+            updateMonthlyInput();
+            toggleMonthlyPicker();
+            // Automatically close the Select Date sidebar on selection
+            document.getElementById('dateSidebar').classList.remove('open');
+        }
+
+        function updateMonthlyInput() {
+            document.getElementById('monthlyInput').value = `${monthNames[selectedMonthIdx]} ${currentYear}`;
+            document.getElementById('filterSubtext').innerText = `${monthNames[selectedMonthIdx]} ${currentYear}`;
+        }
+
+        // --- DAILY & WEEKLY CALENDAR LOGIC ---
+        function initDayGrids(gridId, inputId, calId) {
+            const grid = document.getElementById(gridId);
+            for (let i = 1; i <= 31; i++) {
+                const d = document.createElement('div');
+                d.className = `calendar-day ${i === 26 ? 'active' : ''}`;
+                d.innerText = i;
+                d.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    document.getElementById(inputId).value = `3/${i}/2026`; 
+                    document.getElementById(calId).classList.add('hidden'); 
+                    document.getElementById('filterSubtext').innerText = `3/${i}/2026`;
+                    // Automatically close the Select Date sidebar on selection
+                    document.getElementById('dateSidebar').classList.remove('open');
+                };
+                grid.appendChild(d);
+            }
+        }
+
+        initDayGrids('daysGrid', 'dateInput', 'dailyCal');
+        initDayGrids('weeklyDaysGrid', 'weeklyDateInput', 'weeklyCal');
+        initMonthlyCalendar();
+    </script>
+</body>
+</html>
