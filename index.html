@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Reporting Interface - Report Integration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        .sidebar-active { border-left: 4px solid #ffffff; background-color: rgba(255,255,255,0.1); }
+        
+        .report-item { transition: all 0.2s; border-radius: 4px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .report-item:hover { background-color: #eff6ff; color: #2563eb; }
+
+        /* Monthly Picker Styles */
+        .month-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px 15px; }
+        .month-item { text-align: center; padding: 10px 5px; cursor: pointer; font-size: 12px; font-weight: 600; color: #4b5563; border-radius: 25px; transition: all 0.2s; }
+        .month-item:hover:not(.active) { background-color: #f3f4f6; }
+        .month-item.active { background-color: #b02a77; color: white; box-shadow: 0 4px 10px rgba(176, 42, 119, 0.4); }
+
+        /* Daily & Weekly Calendar Styles */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
+        .calendar-day { padding: 6px 0; cursor: pointer; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 11px; }
+        .calendar-day.active { background-color: #1d4ed8; color: white; }
+
+        #dateSidebar, #locationSidebar { transition: width 0.3s ease-in-out, opacity 0.2s; width: 0; opacity: 0; overflow: hidden; }
+        #dateSidebar.open, #locationSidebar.open { width: 380px; opacity: 1; border-left-width: 1px; }
+
+        #filterContentWrapper { transition: width 0.3s ease-in-out; width: 0; overflow: hidden; }
+        #filterContentWrapper.open { width: 18rem; }
+
+        /* --- SCOPED REPORT STYLES --- */
+        .dcr-report { font-family: Arial, sans-serif; background: #f4f6f9; padding: 40px 20px; }
+        .dcr-report .report-container { width: 100%; background: #fff; border: 1px solid #ccc; padding: 10px; }
+        .dcr-report .section-title { background-color: #8fa6c6; font-weight: bold; padding: 8px; text-align: center; margin-top: 20px; color: black; }
+        .dcr-report table { width: 100%; border-collapse: collapse; margin-bottom: 20px;}
+        .dcr-report th, .dcr-report td { border: 1px solid #ddd; padding: 6px; font-size: 12px; color: black; }
+        .dcr-report th { background: #e6e6e6; }
+        .dcr-report .right { text-align: right; }
+        .dcr-report .total { text-align: right; font-weight: bold; }
+        .dcr-report .center { text-align: center; }
+        .dcr-report .no-data { text-align: center; padding: 10px; color: #777; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <header class="bg-[#001529] text-white h-12 flex items-center justify-between px-4 shrink-0 z-50">
+        <div class="flex items-center gap-4">
+            <i class="fas fa-th-large text-lg"></i>
+            <span class="font-semibold text-sm">My App</span>
+        </div>
+        <div class="flex items-center gap-4 text-gray-300">
+            <i class="fas fa-cog cursor-pointer hover:text-white"></i>
+            <div class="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-xs font-bold text-white uppercase">G</div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <aside class="bg-[#001529] w-12 flex flex-col items-center py-4 gap-4 shrink-0 z-30">
+            <div class="p-2 cursor-pointer hover:bg-blue-900 rounded text-white"><i class="fas fa-home"></i></div>
+            <div class="p-2 cursor-pointer sidebar-active rounded text-white"><i class="fas fa-chart-bar"></i></div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-hidden bg-white">
+            <div class="border-b flex items-center px-4 h-10 gap-6 text-sm shrink-0">
+                <div class="flex items-center gap-2 text-blue-600 border-b-2 border-blue-600 h-full px-2 font-medium cursor-pointer">Sales</div>
+                <div class="text-gray-400 cursor-pointer hover:text-gray-600">Labor</div>
+                <div class="text-gray-400 cursor-pointer hover:text-gray-600">Food</div>
+            </div>
+
+            <div id="dashboardView" class="p-6 overflow-y-auto bg-[#f0f2f5] h-full">
+                <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    <div class="bg-white border rounded p-4 shadow-sm">
+                        <div class="border-l-4 border-blue-700 pl-2 mb-3 font-bold text-[11px] text-gray-700 uppercase tracking-wider">Sales Performance</div>
+                        <ul class="space-y-1 text-[12px] text-gray-600">
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Sales By Daypart Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Sales By Surcharge Report</li>
+                            <li onclick="openReport()" class="report-item font-bold text-blue-600"><i class="far fa-file-alt"></i> Daily Sales Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Monthly Sales Report</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="bg-white border rounded p-4 shadow-sm">
+                        <div class="border-l-4 border-blue-700 pl-2 mb-3 font-bold text-[11px] text-gray-700 uppercase tracking-wider">Discounts & Adjustments</div>
+                        <ul class="space-y-1 text-[12px] text-gray-600">
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Sales By Discount Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Void / Refund Report</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-white border rounded p-4 shadow-sm">
+                        <div class="border-l-4 border-blue-700 pl-2 mb-3 font-bold text-[11px] text-gray-700 uppercase tracking-wider">Payment & Cash Management</div>
+                        <ul class="space-y-1 text-[12px] text-gray-600">
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Payment Type Report</li>
+                            <li class="report-item"><i class="far fa-file-alt text-gray-400"></i> Paid In / Paid Out Report</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div id="reportView" class="hidden flex-1 flex flex-col bg-[#f0f2f5]">
+                <div class="bg-white border-b px-4 py-2 flex items-center justify-between">
+                    <div class="text-[11px]">
+                        <span class="text-gray-400">Sales</span> <i class="fas fa-chevron-right text-[8px] mx-1 text-gray-300"></i> 
+                        <span class="text-gray-400">Sales Performance</span> <i class="fas fa-chevron-right text-[8px] mx-1 text-gray-300"></i> 
+                        <span class="text-blue-600 font-bold">Daily Sales Report</span>
+                    </div>
+                    <button onclick="resetToDashboard()" class="text-blue-500 border border-blue-500 rounded px-4 py-1 text-[11px] font-bold uppercase hover:bg-blue-50">Reset</button>
+                </div>
+
+                <div class="flex flex-1 overflow-hidden relative">
+                    
+                    <div id="emptyStateCanvas" class="flex-1 flex flex-col items-center justify-center text-gray-400 bg-gray-50/50">
+                        <i class="fas fa-chart-bar text-4xl mb-3 opacity-10"></i>
+                        <p class="italic text-sm">Select criteria from the panel on the right, or click PDF to preview.</p>
+                    </div>
+
+                    <div id="reportPreviewCanvas" class="hidden flex-1 overflow-y-auto bg-gray-200 relative">
+                        <button onclick="closeReportPreview()" class="absolute top-4 right-4 bg-white hover:bg-red-50 text-red-500 border border-red-200 rounded-full w-8 h-8 flex items-center justify-center shadow-md z-10 transition">
+                            <i class="fas fa-times"></i>
+                        </button>
+                        
+                        <div class="dcr-report">
+                            <div class="report-container max-w-5xl mx-auto shadow-md">
+                                <div class="section-title">Cash Reconciliation</div>
+                                <table>
+                                   <tr><th>Description</th><th>#</th><th>Amount ($)</th></tr>
+                                   <tr><td>Gross Sales</td><td class="right"></td><td class="right">106,932.95</td></tr>
+                                   <tr><td>Total Discount</td><td class="right"></td><td class="right">2,344.21</td></tr>
+                                   <tr><td>Total Tax</td><td class="right"></td><td class="right">6,842.46</td></tr>
+                                   <tr><td>Total Transaction Count</td><td class="right">4431</td><td class="right"></td></tr>
+                                   <tr><td>Net Sales</td><td class="right"></td><td class="right">97,746.28</td></tr>
+                                   <tr><td>Adjusted Gross Sales</td><td class="right"></td><td class="right">106,969.79</td></tr>
+                                   <tr><td>Gift Card Issued</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Gift Card Reloaded</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Exempt Sales</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Total Tips</td><td class="right"></td><td class="right">3,065.58</td></tr>
+                                   <tr><td>Total Cash Deposit</td><td class="right"></td><td class="right">18,657.32</td></tr>
+                                   <tr><td>Total Service Charge</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Total Gratuity</td><td class="right"></td><td class="right">0.00</td></tr>
+                                   <tr><td>Total Refund</td><td class="right"></td><td class="right">227.11</td></tr>
+                                   <tr><td>Non Revenue Sales</td><td class="right"></td><td class="right">34.45</td></tr>
+                                </table>
+                       
+                                <div class="section-title">Sales by Minor Category</div>
+                                <table>
+                                   <tr><th>Name</th><th>Net Sales ($)</th><th>% Net</th><th>Gross Sales ($)</th><th>Comps ($)</th><th>Discounts ($)</th><th>Taxes ($)</th><th>Voids ($)</th></tr>
+                                   <tr><td>Adult Beverage</td><td class="right">13,663.93</td><td class="right">13.97</td><td class="right">13,955.87</td><td class="right">0</td><td class="right">291.94</td><td class="right">0</td><td class="right">354.18</td></tr>
+                                   <tr><td>Adult Buffet</td><td class="right">62,741.72</td><td class="right">64.17</td><td class="right">64,540.88</td><td class="right">0</td><td class="right">1799.16</td><td class="right">0</td><td class="right">1972.48</td></tr>
+                                   <tr><td>CYO Pizza</td><td class="right">1850.98</td><td class="right">1.89</td><td class="right">1915.94</td><td class="right">0</td><td class="right">64.96</td><td class="right">0</td><td class="right">37.96</td></tr>
+                                   <tr><td>Catering</td><td class="right">335.71</td><td class="right">0.34</td><td class="right">335.71</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">2.50</td></tr>
+                                   <tr><td>Charges</td><td class="right">34.45</td><td class="right">0.04</td><td class="right">34.45</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Child Beverage</td><td class="right">1,746.92</td><td class="right">1.79</td><td class="right">1,768.64</td><td class="right">0</td><td class="right">21.72</td><td class="right">0</td><td class="right">41.00</td></tr>
+                                   <tr><td>Child Buffet</td><td class="right">8,861.55</td><td class="right">9.06</td><td class="right">8,971.67</td><td class="right">0</td><td class="right">110.12</td><td class="right">0</td><td class="right">209.54</td></tr>
+                                   <tr><td>OU Deals</td><td class="right">1,356.96</td><td class="right">1.39</td><td class="right">1,365.35</td><td class="right">0</td><td class="right">8.39</td><td class="right">0</td><td class="right">37.97</td></tr>
+                                   <tr><td>Sides & Desserts</td><td class="right">1,682.04</td><td class="right">1.72</td><td class="right">1,682.04</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">12.98</td></tr>
+                                   <tr><td>Specialty Pizza</td><td class="right">3,327.19</td><td class="right">3.40</td><td class="right">3,345.04</td><td class="right">0</td><td class="right">17.85</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Toppings</td><td class="right">194.51</td><td class="right">0.20</td><td class="right">194.51</td><td class="right">0</td><td class="right">0</td><td class="right">0</td><td class="right">0</td></tr>
+                                   <tr><td>Wings</td><td class="right">1,984.77</td><td class="right">2.03</td><td class="right">2,014.84</td><td class="right">0</td><td class="right">30.07</td><td class="right">0</td><td class="right">21.98</td></tr>
+                                   <tr><td class="total">Total</td><td class="right">97,780.73</td><td class="right"></td><td class="right">100,124.94</td><td class="right">0</td><td class="right">2,344.21</td><td class="right">0</td><td class="right">2,690.59</td></tr>
+                                </table>
+                             </div>
+                        </div>
+                    </div>
+
+                    <div class="flex shrink-0 bg-white border-l">
+                        <div class="w-[45px] border-r flex items-start justify-center pt-6 bg-white cursor-pointer hover:bg-gray-50 transition" onclick="toggleFilterSidebar()">
+                            <span class="rotate-180 [writing-mode:vertical-lr] text-[10px] font-bold tracking-widest text-gray-800 uppercase">
+                                <i class="fas fa-filter rotate-90 mb-2"></i> Filters
+                            </span>
+                        </div>
+
+                        <div id="locationSidebar" class="flex flex-col bg-white h-full shadow-inner z-10">
+                            <div class="p-6 w-[380px]">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h2 class="font-bold text-gray-500 text-xs uppercase tracking-widest">Select Franchise / Store</h2>
+                                    <i onclick="toggleLocationSidebar()" class="fas fa-times cursor-pointer text-gray-400 text-lg hover:text-black"></i>
+                                </div>
+                                <input type="text" placeholder="Search..." class="w-full border rounded p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 text-gray-600">
+                                <div class="mt-4 flex-1 overflow-y-auto">
+                                    <div class="flex items-center gap-2 mb-2 cursor-pointer">
+                                        <i class="fas fa-caret-down text-gray-800"></i>
+                                        <input type="checkbox" class="accent-blue-600 w-4 h-4 cursor-pointer">
+                                        <span class="text-sm text-[#1e40af] font-medium">Corporate (11)</span>
+                                    </div>
+                                    <div class="border-l border-gray-200 ml-[9px] pl-6 space-y-3 py-1 flex flex-col">
+                                        <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="accent-blue-600 w-4 h-4"><span class="text-sm text-[#64748b]">Sparta</span></label>
+                                        <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="accent-blue-600 w-4 h-4"><span class="text-sm text-[#64748b]">Famous Dave's Redlands #3135</span></label>
+                                        <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" class="accent-blue-600 w-4 h-4"><span class="text-sm text-[#64748b]">Famous Dave's Gilroy #3101</span></label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="dateSidebar" class="flex flex-col bg-white h-full shadow-inner z-10">
+                            <div class="p-6 flex flex-col h-full w-[380px]">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h2 class="font-bold text-gray-500 text-xs uppercase">Select Date</h2>
+                                    <i onclick="toggleDateSidebar()" class="fas fa-times cursor-pointer text-gray-300 hover:text-black"></i>
+                                </div>
+
+                                <div class="flex gap-4 mb-8 border-b pb-4">
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="daily" checked onclick="switchDateUI('daily')" class="accent-blue-600"> Daily
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="weekly" onclick="switchDateUI('weekly')" class="accent-blue-600"> Weekly
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="monthly" onclick="switchDateUI('monthly')" class="accent-blue-600"> Monthly
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                                        <input type="radio" name="dateMode" value="custom" onclick="switchDateUI('custom')" class="accent-blue-600"> Custom
+                                    </label>
+                                </div>
+
+                                <div class="flex-1">
+                                    <div id="ui-daily" class="space-y-4">
+                                        <label class="text-[10px] font-bold text-gray-400 uppercase">Busi Date</label>
+                                        <div class="relative">
+                                            <input type="text" id="dateInput" readonly value="3/26/2026" onclick="toggleDailyCal()" class="w-full border rounded p-2 text-sm cursor-pointer outline-none">
+                                            <i class="far fa-calendar-alt absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                                        </div>
+                                        <div id="dailyCal" class="hidden border rounded shadow-lg p-4 bg-white mt-1">
+                                            <div class="flex justify-between items-center mb-4 text-xs font-bold text-gray-700">MAR 2026 <i class="fas fa-caret-down"></i></div>
+                                            <div class="calendar-grid text-[10px] font-bold text-gray-300 mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                                            <div id="daysGrid" class="calendar-grid"></div>
+                                        </div>
+                                    </div>
+
+                                    <div id="ui-weekly" class="hidden space-y-4">
+                                        <label class="text-[10px] font-bold text-gray-400 uppercase">Select Week</label>
+                                        <div class="relative">
+                                            <input type="text" id="weeklyDateInput" readonly value="3/26/2026" onclick="toggleWeeklyCal()" class="w-full border rounded p-2 text-sm cursor-pointer outline-none">
+                                            <i class="far fa-calendar-alt absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                                        </div>
+                                        <div id="weeklyCal" class="hidden border rounded shadow-lg p-4 bg-white mt-1">
+                                            <div class="flex justify-between items-center mb-4 text-xs font-bold text-gray-700">MAR 2026 <i class="fas fa-caret-down"></i></div>
+                                            <div class="calendar-grid text-[10px] font-bold text-gray-300 mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                                            <div id="weeklyDaysGrid" class="calendar-grid"></div>
+                                        </div>
+                                    </div>
+
+                                    <div id="ui-monthly" class="hidden space-y-4">
+                                        <label class="text-[10px] font-bold text-gray-400 uppercase">Busi Month</label>
+                                        <div class="relative">
+                                            <input type="text" id="monthlyInput" readonly value="MAR 2026" onclick="toggleMonthlyPicker()" class="w-full border rounded p-2 text-sm cursor-pointer outline-none">
+                                            <i class="far fa-calendar-alt absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                                        </div>
+                                        
+                                        <div id="monthlyPicker" class="hidden border rounded-xl shadow-lg bg-white mt-1 overflow-hidden">
+                                            <div class="flex justify-between items-center p-4 border-b">
+                                                <div class="border rounded px-2 py-1 text-sm font-medium" id="yearDisplay">2026 <i class="fas fa-caret-up text-[#b02a77]"></i></div>
+                                                <div class="flex gap-4 text-[#b02a77]">
+                                                    <i class="fas fa-chevron-left cursor-pointer" onclick="changeYear(-1)"></i>
+                                                    <i class="fas fa-chevron-right cursor-pointer" onclick="changeYear(1)"></i>
+                                                </div>
+                                            </div>
+                                            <div class="month-grid" id="monthGrid">
+                                                </div>
+                                        </div>
+                                    </div>
+
+                                    <div id="ui-custom" class="hidden space-y-4">
+                                        <div class="flex gap-4">
+                                            <div class="flex-1">
+                                                <label class="text-[10px] font-bold text-gray-400 uppercase">Start Date</label>
+                                                <input type="date" class="w-full border rounded p-2 text-sm mt-1 outline-none">
+                                            </div>
+                                            <div class="flex-1">
+                                                <label class="text-[10px] font-bold text-gray-400 uppercase">End Date</label>
+                                                <input type="date" class="w-full border rounded p-2 text-sm mt-1 outline-none">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside id="filterContentWrapper" class="bg-white shrink-0 z-20 relative shadow-[-4px_0_10px_rgba(0,0,0,0.03)]">
+                            <div class="w-72 flex flex-col h-full border-l">
+                                <div class="flex-1 p-4 bg-[#f1f6fa]">
+                                    <div class="bg-[#e6f0f8] border border-blue-100 rounded p-4 shadow-sm">
+                                        <div class="text-[10px] font-bold text-gray-400 mb-4 uppercase">Filters</div>
+                                        <div onclick="toggleLocationSidebar()" class="cursor-pointer mb-5 group">
+                                            <div class="flex justify-between items-center text-[11px] font-bold text-gray-600 group-hover:text-blue-600 transition">LOCATION <i class="fas fa-chevron-down text-gray-400"></i></div>
+                                            <div id="locationSubtext" class="text-[11px] text-gray-400 italic mt-1">None locations included</div>
+                                        </div>
+                                        <div onclick="toggleDateSidebar()" class="cursor-pointer group">
+                                            <div class="flex justify-between items-center text-[11px] font-bold text-gray-600 group-hover:text-blue-600 transition">DATE RANGE <i class="fas fa-chevron-down text-gray-400"></i></div>
+                                            <div id="filterSubtext" class="text-[11px] text-gray-400 italic mt-1">Select a date range...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex gap-2 border-t bg-white">
+                                    <button onclick="renderPDFReport()" class="flex-1 border rounded py-2 text-[10px] text-blue-600 font-bold flex items-center justify-center gap-1 hover:bg-gray-50"><i class="far fa-file-pdf"></i> PDF</button>
+                                    <button class="flex-1 border rounded py-2 text-[10px] text-blue-600 font-bold flex items-center justify-center gap-1 hover:bg-gray-50"><i class="far fa-file-excel"></i> EXCEL</button>
+                                    <button class="flex-1 border rounded py-2 text-[10px] text-blue-600 font-bold flex items-center justify-center gap-1 hover:bg-gray-50"><i class="fas fa-globe"></i> WEB</button>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function openReport() {
+            document.getElementById('dashboardView').classList.add('hidden');
+            document.getElementById('reportView').classList.remove('hidden');
+        }
+
+        function resetToDashboard() {
+            // Revert to dashboard view
+            document.getElementById('dashboardView').classList.remove('hidden');
+            document.getElementById('reportView').classList.add('hidden');
+            
+            // Reset the report canvas to its empty state
+            closeReportPreview();
+        }
+
+        // --- RENDER PDF REPORT PREVIEW ---
+        function renderPDFReport() {
+            // Hide the placeholder empty state
+            document.getElementById('emptyStateCanvas').classList.add('hidden');
+            
+            // Show the actual report
+            document.getElementById('reportPreviewCanvas').classList.remove('hidden');
+
+            // Close the filter sidebars automatically to give the report full focus
+            const filterWrapper = document.getElementById('filterContentWrapper');
+            filterWrapper.classList.remove('open'); 
+            document.getElementById('dateSidebar').classList.remove('open');
+            document.getElementById('locationSidebar').classList.remove('open');
+        }
+
+        // --- CLOSE PDF REPORT PREVIEW ---
+        function closeReportPreview() {
+            document.getElementById('reportPreviewCanvas').classList.add('hidden');
+            document.getElementById('emptyStateCanvas').classList.remove('hidden');
+        }
+
+        function toggleFilterSidebar() { 
+            const filterWrapper = document.getElementById('filterContentWrapper');
+            filterWrapper.classList.toggle('open'); 
+            if (!filterWrapper.classList.contains('open')) {
+                document.getElementById('dateSidebar').classList.remove('open');
+                document.getElementById('locationSidebar').classList.remove('open');
+            }
+        }
+        function toggleDateSidebar() { 
+            document.getElementById('dateSidebar').classList.toggle('open'); 
+            document.getElementById('locationSidebar').classList.remove('open');
+        }
+        function toggleLocationSidebar() {
+            document.getElementById('locationSidebar').classList.toggle('open');
+            document.getElementById('dateSidebar').classList.remove('open');
+        }
+
+        // Calendar Toggles
+        function toggleDailyCal() { document.getElementById('dailyCal').classList.toggle('hidden'); }
+        function toggleWeeklyCal() { document.getElementById('weeklyCal').classList.toggle('hidden'); }
+        function toggleMonthlyPicker() { document.getElementById('monthlyPicker').classList.toggle('hidden'); }
+        
+        function switchDateUI(mode) {
+            ['daily', 'weekly', 'monthly', 'custom'].forEach(m => document.getElementById('ui-' + m).classList.add('hidden'));
+            document.getElementById('ui-' + mode).classList.remove('hidden');
+        }
+
+        // --- MONTHLY CALENDAR LOGIC ---
+        let currentYear = 2026;
+        let selectedMonthIdx = 2; // Default to March (index 2)
+        const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+        function initMonthlyCalendar() {
+            const grid = document.getElementById('monthGrid');
+            grid.innerHTML = '';
+            monthNames.forEach((month, index) => {
+                const div = document.createElement('div');
+                div.className = `month-item ${index === selectedMonthIdx ? 'active' : ''}`;
+                div.innerText = month;
+                div.onclick = () => selectMonth(index);
+                grid.appendChild(div);
+            });
+            document.getElementById('yearDisplay').innerHTML = `${currentYear} <i class="fas fa-caret-up text-[#b02a77]"></i>`;
+        }
+
+        function changeYear(delta) {
+            currentYear += delta;
+            initMonthlyCalendar();
+            updateMonthlyInput();
+        }
+
+        function selectMonth(idx) {
+            selectedMonthIdx = idx;
+            initMonthlyCalendar();
+            updateMonthlyInput();
+            toggleMonthlyPicker();
+        }
+
+        function updateMonthlyInput() {
+            document.getElementById('monthlyInput').value = `${monthNames[selectedMonthIdx]} ${currentYear}`;
+            document.getElementById('filterSubtext').innerText = `${monthNames[selectedMonthIdx]} ${currentYear}`;
+        }
+
+        // --- DAILY & WEEKLY CALENDAR LOGIC ---
+        function initDayGrids(gridId, inputId, calId) {
+            const grid = document.getElementById(gridId);
+            for (let i = 1; i <= 31; i++) {
+                const d = document.createElement('div');
+                d.className = `calendar-day ${i === 26 ? 'active' : ''}`;
+                d.innerText = i;
+                d.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    document.getElementById(inputId).value = `3/${i}/2026`; 
+                    document.getElementById(calId).classList.add('hidden'); 
+                    document.getElementById('filterSubtext').innerText = `3/${i}/2026`;
+                };
+                grid.appendChild(d);
+            }
+        }
+
+        initDayGrids('daysGrid', 'dateInput', 'dailyCal');
+        initDayGrids('weeklyDaysGrid', 'weeklyDateInput', 'weeklyCal');
+        initMonthlyCalendar();
+    </script>
+</body>
+</html>
